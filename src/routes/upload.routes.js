@@ -1,15 +1,35 @@
 const express = require('express');
 const router = express.Router();
-const { uploadMiddleware, uploadFile } = require('../controllers/upload.controller');
+const {
+  uploadSingleMiddleware,
+  uploadMultipleMiddleware,
+  uploadSingleFile,
+  uploadMultipleFiles,
+  getCloudinaryConfig
+} = require('../controllers/upload.controller');
 const { authenticate } = require('../middleware/auth.middleware');
 
-router.post('/', authenticate, (req, res, next) => {
-  uploadMiddleware(req, res, (err) => {
+// Upload single file
+router.post('/single', authenticate, (req, res, next) => {
+  uploadSingleMiddleware(req, res, (err) => {
     if (err) {
       return next(err);
     }
-    uploadFile(req, res, next);
+    uploadSingleFile(req, res, next);
   });
 });
+
+// Upload multiple files
+router.post('/multiple', authenticate, (req, res, next) => {
+  uploadMultipleMiddleware(req, res, (err) => {
+    if (err) {
+      return next(err);
+    }
+    uploadMultipleFiles(req, res, next);
+  });
+});
+
+// Get Cloudinary configuration for client-side uploads
+router.get('/config', authenticate, getCloudinaryConfig);
 
 module.exports = router;

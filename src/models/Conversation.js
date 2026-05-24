@@ -18,6 +18,24 @@ const participantSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const transferSchema = new mongoose.Schema(
+  {
+    from: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    to: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    reason: { type: String, default: '' },
+    transferredAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
 const conversationSchema = new mongoose.Schema(
   {
     participants: {
@@ -61,6 +79,10 @@ const conversationSchema = new mongoose.Schema(
         default: null,
       },
       timestamp: { type: Date, default: Date.now },
+    },
+    transfers: {
+      type: [transferSchema],
+      default: [],
     },
   },
   {

@@ -1,7 +1,7 @@
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
 const { successResponse, paginatedResponse } = require('../utils/response');
-const { NotFoundError, ForbiddenError } = require('../utils/errors');
+const { NotFoundError, ForbiddenError, BadRequestError } = require('../utils/errors');
 
 const getMessages = async (req, res, next) => {
   try {
@@ -16,7 +16,7 @@ const getMessages = async (req, res, next) => {
     }
 
     const isParticipant = conversation.participants.some(
-      (p) => p.userId.toString() === req.userId
+      (p) => p.userId.toString() === req.userId.toString()
     );
     if (!isParticipant && req.user.role !== 'admin') {
       throw new ForbiddenError('Not a participant of this conversation');
@@ -33,6 +33,10 @@ const getMessages = async (req, res, next) => {
       .limit(limit);
 
     const total = await Message.countDocuments({ conversationId });
+
+    // Debug: Log messages with attachments
+    const messagesWithAttachments = messages.filter(m => m.attachments && m.attachments.length > 0);
+    console.log(`Found ${messagesWithAttachments.length} messages with attachments out of ${messages.length} total`);
 
     successResponse(res, {
       messages: messages.reverse(),
@@ -55,7 +59,7 @@ const sendMessage = async (req, res, next) => {
     }
 
     const isParticipant = conversation.participants.some(
-      (p) => p.userId.toString() === req.userId
+      (p) => p.userId.toString() === req.userId.toString()
     );
     if (!isParticipant) {
       throw new ForbiddenError('Not a participant of this conversation');
@@ -65,12 +69,30 @@ const sendMessage = async (req, res, next) => {
       throw new ForbiddenError('Conversation is not active');
     }
 
+    // Validate that at least content or attachments is provided
+    const hasContent = content && content.trim().length > 0;
+    const hasAttachments = attachments && attachments.length > 0;
+
+    if (!hasContent && !hasAttachments) {
+      throw new BadRequestError('Message must have content or attachments');
+    }
+
+    // If no content but has attachments, use first attachment name as content
+    let messageContent = content || '';
+    if (!hasContent && hasAttachments && attachments.length > 0) {
+      messageContent = attachments[0].name || 'Attachment';
+    }
+
+    console.log('Creating message with attachments:', { conversationId, content: messageContent, attachments: attachments || [] });
+
     const message = await Message.create({
       conversationId,
       senderId: req.userId,
-      content,
+      content: messageContent,
       attachments: attachments || [],
     });
+
+    console.log('Message created with attachments:', message._id, 'attachments count:', message.attachments?.length);
 
     // Update conversation's last message
     conversation.lastMessage = {

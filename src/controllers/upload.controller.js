@@ -1,68 +1,89 @@
 const multer = require('multer');
-const path = require('path');
-const sharp = require('sharp');
-const { v4: uuidv4 } = require('uuid');
+const { uploadFile, uploadMultipleFiles, getUploadConfig, ALLOWED_FILE_TYPES, MAX_FILE_SIZE } = require('../services/cloudinary.service');
 const { successResponse } = require('../utils/response');
 const { BadRequestError } = require('../utils/errors');
-const env = require('../config/env');
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, env.UPLOAD_DEST);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `${uuidv4()}${ext}`);
-  },
-});
+// Configure multer for memory storage (files will be uploaded to Cloudinary)
+const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf', 'text/plain', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
-  if (allowedTypes.includes(file.mimetype)) {
+  if (ALLOWED_FILE_TYPES.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new BadRequestError('File type not supported'), false);
+    cb(new BadRequestError(`File type ${file.mimetype} is not supported. Allowed types: images, PDF, Word, Excel, PowerPoint, and text files.`), false);
   }
 };
 
 const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: env.MAX_FILE_SIZE },
+  limits: { fileSize: MAX_FILE_SIZE },
 });
 
-const uploadFile = async (req, res, next) => {
+/**
+ * Upload a single file to Cloudinary
+ */
+const uploadSingleFile = async (req, res, next) => {
   try {
     if (!req.file) {
       throw new BadRequestError('No file uploaded');
     }
 
-    let filePath = req.file.path;
-
-    // Compress images using sharp
-    if (req.file.mimetype.startsWith('image/') && req.file.mimetype !== 'image/gif') {
-      const compressedPath = req.file.path.replace(/(\.[\w\d_-]+)$/i, '_compressed$1');
-      await sharp(req.file.path)
-        .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 80 })
-        .toFile(compressedPath);
-
-      filePath = compressedPath;
-    }
+    const result = await uploadFile(
+      req.file.buffer,
+      req.file.originalname,
+      req.file.mimetype
+    );
 
     successResponse(res, {
-      file: {
-        url: `/uploads/${path.basename(filePath)}`,
-        originalName: req.file.originalname,
-        mimeType: req.file.mimetype,
-        size: req.file.size,
-      },
+      file: result,
     }, 'File uploaded successfully', 201);
   } catch (error) {
     next(error);
   }
 };
 
-const uploadMiddleware = upload.single('file');
+/**
+ * Upload multiple files to Cloudinary
+ */
+const uploadMultipleFilesController = async (req, res, next) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      throw new BadRequestError('No files uploaded');
+    }
 
-module.exports = { uploadMiddleware, uploadFile };
+    const results = await uploadMultipleFiles(req.files);
+
+    successResponse(res, {
+      files: results,
+    }, `${results.length} file(s) uploaded successfully`, 201);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get Cloudinary upload configuration for client-side uploads
+ */
+const getCloudinaryConfig = async (req, res, next) => {
+  try {
+    const config = getUploadConfig();
+    successResponse(res, { config }, 'Upload configuration retrieved successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Middleware for single file upload
+const uploadSingleMiddleware = upload.single('file');
+
+// Middleware for multiple files upload (up to 5 files)
+const uploadMultipleMiddleware = upload.array('files', 5);
+
+module.exports = {
+  uploadSingleMiddleware,
+  uploadMultipleMiddleware,
+  uploadSingleFile,
+  uploadMultipleFiles: uploadMultipleFilesController,
+  getCloudinaryConfig,
+};

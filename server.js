@@ -25,6 +25,9 @@ io.use(authenticateSocket);
 io.on('connection', (socket) => {
   console.log(`User connected: ${socket.userId}`);
 
+  // Join user's personal room for notifications
+  socket.join(socket.userId);
+
   // Broadcast user online
   socket.broadcast.emit('user_online', { userId: socket.userId });
 

@@ -19,6 +19,7 @@ const authenticate = async (req, res, next) => {
 
     req.user = user;
     req.userId = user._id;
+    req.userRole = user.role;
     next();
   } catch (error) {
     if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
@@ -41,6 +42,7 @@ const optionalAuth = async (req, res, next) => {
     if (user) {
       req.user = user;
       req.userId = user._id;
+      req.userRole = user.role;
     }
     next();
   } catch {

@@ -15,6 +15,16 @@ const env = {
   UPLOAD_DEST: process.env.UPLOAD_DEST || 'uploads/',
   MAX_FILE_SIZE: parseInt(process.env.MAX_FILE_SIZE) || 5242880,
   SOCKET_PATH: process.env.SOCKET_PATH || '/socket.io',
+
+  // Cloudinary Configuration
+  CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME || 'drtmkpnry',
+  CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY || '998615597477181',
+  CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET || '',
+  CLOUDINARY_UPLOAD_PRESET: process.env.CLOUDINARY_UPLOAD_PRESET || 'product_image',
+
+  // Resend Email Configuration
+  RESEND_API_KEY: process.env.RESEND_API_KEY || '',
+  RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL || 'notifications@worknoon.com',
 };
 
 module.exports = env;

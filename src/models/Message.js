@@ -33,7 +33,8 @@ const messageSchema = new mongoose.Schema(
     },
     content: {
       type: String,
-      required: [true, 'Message content is required'],
+      required: false, // Allow empty content for image-only messages
+      default: '',
       trim: true,
       maxlength: [5000, 'Message cannot exceed 5000 characters'],
     },
@@ -49,6 +50,10 @@ const messageSchema = new mongoose.Schema(
     readBy: {
       type: [readReceiptSchema],
       default: [],
+    },
+    isSystemMessage: {
+      type: Boolean,
+      default: false,
     },
   },
   {

@@ -31,6 +31,39 @@ const getUsers = async (req, res, next) => {
   }
 };
 
+// Get available users for chat by role (for customers to start conversations)
+const getAvailableUsers = async (req, res, next) => {
+  try {
+    const { role } = req.query;
+
+    // Only allow customers to access this endpoint
+    if (req.user.role !== 'customer') {
+      return successResponse(res, { users: [] }, 'Only customers can browse available users');
+    }
+
+    // Valid roles that customers can chat with
+    const validRoles = ['agent', 'designer', 'merchant'];
+
+    let filter = {
+      status: { $ne: 'inactive' },
+      role: { $in: validRoles }
+    };
+
+    // If specific role requested, filter by it
+    if (role && validRoles.includes(role)) {
+      filter.role = role;
+    }
+
+    const users = await User.find(filter)
+      .select('email role profile.firstName profile.lastName profile.avatar profile.bio status.isOnline')
+      .sort({ 'status.isOnline': -1, 'profile.firstName': 1 });
+
+    successResponse(res, { users }, 'Available users retrieved successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
 const getUserById = async (req, res, next) => {
   try {
     const user = await User.findById(req.params.id);
@@ -73,4 +106,4 @@ const updateProfile = async (req, res, next) => {
   }
 };
 
-module.exports = { getUsers, getUserById, updateProfile };
+module.exports = { getUsers, getAvailableUsers, getUserById, updateProfile };

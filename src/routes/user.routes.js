@@ -7,6 +7,7 @@ const { body } = require('express-validator');
 const { validate } = require('../middleware/validate.middleware');
 
 router.get('/', authenticate, authorize('admin'), userController.getUsers);
+router.get('/available', authenticate, userController.getAvailableUsers);
 router.get('/:id', authenticate, userController.getUserById);
 router.put(
   '/profile',

@@ -12,7 +12,8 @@ router.post(
   authenticate,
   validate([
     body('conversationId').isMongoId().withMessage('Invalid conversation ID'),
-    body('content').notEmpty().withMessage('Message content is required'),
+    body('content').optional(),
+    body('attachments').optional().isArray().withMessage('Attachments must be an array'),
   ]),
   messageController.sendMessage
 );

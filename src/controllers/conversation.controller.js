@@ -1,5 +1,6 @@
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
+const Notification = require('../models/Notification');
 const { successResponse, paginatedResponse } = require('../utils/response');
 const { NotFoundError, ForbiddenError } = require('../utils/errors');
 
@@ -83,11 +84,29 @@ const getConversation = async (req, res, next) => {
 
     // Check if user is a participant
     const isParticipant = conversation.participants.some(
-      (p) => p.userId._id.toString() === req.userId
+      (p) => p.userId._id.toString() === req.userId.toString()
     );
-    if (!isParticipant && req.user.role !== 'admin') {
+
+    // Allow access if:
+    // 1. User is a participant
+    // 2. User is an admin
+    // 3. User is an agent and conversation is a support chat (pending or active)
+    // 4. User is the creator of the conversation
+    const isAdmin = req.userRole === 'admin';
+    const isAgent = req.userRole === 'agent';
+    const isSupportChat = conversation.type === 'support';
+    const isPendingOrActive = conversation.status === 'pending' || conversation.status === 'active';
+    const canAccessAsAgent = isAgent && isSupportChat && isPendingOrActive;
+
+    if (!isParticipant && !isAdmin && !canAccessAsAgent) {
       throw new ForbiddenError('Not a participant of this conversation');
     }
+
+    // Clear notifications for this conversation when opened
+    await Notification.deleteMany({
+      userId: req.userId,
+      'data.conversationId': conversation._id,
+    });
 
     successResponse(res, { conversation }, 'Conversation retrieved successfully');
   } catch (error) {

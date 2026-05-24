@@ -29,17 +29,46 @@ const getOnlineUsers = (io) => {
 
   io.on('connection', (socket) => {
     const userId = socket.userId;
-    onlineUsers.set(userId, socket.id);
+    const user = socket.user;
+    onlineUsers.set(userId, {
+      socketId: socket.id,
+      userId: userId,
+      role: user?.role,
+      profile: user?.profile,
+    });
 
-    // Broadcast user online
-    socket.broadcast.emit('user_online', { userId });
+    // Broadcast user online to all connected clients
+    io.emit('user_online', {
+      userId,
+      role: user?.role,
+      profile: user?.profile,
+      isOnline: true,
+      timestamp: new Date().toISOString(),
+    });
 
     // Update user status in DB
-    User.findByIdAndUpdate(userId, { 'status.isOnline': true, 'status.lastSeen': new Date() }).exec();
+    User.findByIdAndUpdate(userId, {
+      'status.isOnline': true,
+      'status.lastSeen': new Date(),
+    }).exec();
+
+    // Send current online users list to the newly connected user
+    const onlineUserList = Array.from(onlineUsers.values()).map(u => ({
+      userId: u.userId,
+      role: u.role,
+      profile: u.profile,
+    }));
+    socket.emit('online_users_list', { users: onlineUserList });
 
     socket.on('disconnect', async () => {
       onlineUsers.delete(userId);
-      socket.broadcast.emit('user_offline', { userId });
+
+      // Broadcast user offline to all connected clients
+      io.emit('user_offline', {
+        userId,
+        isOnline: false,
+        timestamp: new Date().toISOString(),
+      });
 
       await User.findByIdAndUpdate(userId, {
         'status.isOnline': false,
