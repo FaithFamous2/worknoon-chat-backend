@@ -204,6 +204,52 @@ worknoon-chat-backend/
 - Max file size: 50MB
 - Cloudinary storage with local fallback
 
+## Challenges & Solutions
+
+### Challenge 1: Real-time Message Delivery
+**Problem**: Ensuring messages are delivered instantly to all participants without polling overhead.
+**Solution**: Implemented Socket.IO with room-based architecture. Each conversation is a room, and messages are broadcast only to room members. Fallback to polling for unreliable connections.
+
+### Challenge 2: Chat Assignment Logic
+**Problem**: Automatically assigning customers to the right support agent efficiently.
+**Solution**: Created an assignment algorithm that:
+1. First checks for online agents
+2. Falls back to agent with least active chats
+3. Sends email notification if no agents are online
+4. Stores assignment in conversation metadata
+
+### Challenge 3: File Upload Security
+**Problem**: Allowing file sharing while preventing malicious uploads.
+**Solution**:
+- Strict MIME type validation on both frontend and backend
+- Cloudinary's built-in virus scanning
+- File size limits (50MB max)
+- Secure filename generation to prevent path traversal
+
+### Challenge 4: JWT Token Management
+**Problem**: Balancing security (short-lived tokens) with user experience (not constantly re-logging).
+**Solution**: Implemented refresh token rotation:
+- Access tokens expire in 15 minutes
+- Refresh tokens valid for 7 days
+- Automatic silent refresh in frontend
+- Secure token storage with httpOnly cookies option
+
+### Challenge 5: Multi-role Access Control
+**Problem**: Different users (admin, agent, customer, designer, merchant) need different permissions.
+**Solution**:
+- Role-based middleware (`role.middleware.js`)
+- Route-level permission checks
+- UI components conditionally render based on role
+- API endpoints validate role before processing
+
+### Challenge 6: Database Schema Flexibility
+**Problem**: Chat system needs to evolve without breaking existing data.
+**Solution**:
+- MongoDB schema versioning with Mongoose
+- Non-breaking schema changes with defaults
+- Migration scripts for major updates
+- Profile subdocument for extensible user data
+
 ## Security
 
 - JWT token authentication
@@ -245,11 +291,3 @@ export NODE_ENV=production
 # Start server
 npm start
 ```
-
-## License
-
-MIT
-
-## Support
-
-For support, please contact: careers@worknoon.com
