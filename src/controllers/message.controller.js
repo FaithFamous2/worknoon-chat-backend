@@ -38,8 +38,30 @@ const getMessages = async (req, res, next) => {
     const messagesWithAttachments = messages.filter(m => m.attachments && m.attachments.length > 0);
     console.log(`Found ${messagesWithAttachments.length} messages with attachments out of ${messages.length} total`);
 
+    // Transform messages to match frontend expectations
+    const transformedMessages = messages.map(msg => ({
+      _id: msg._id,
+      conversationId: msg.conversationId,
+      content: msg.content,
+      contentType: msg.contentType,
+      attachments: msg.attachments,
+      status: msg.status,
+      createdAt: msg.createdAt,
+      updatedAt: msg.updatedAt,
+      sender: msg.senderId ? {
+        _id: msg.senderId._id,
+        id: msg.senderId._id,
+        email: msg.senderId.email,
+        role: msg.senderId.role,
+        profile: msg.senderId.profile,
+        name: msg.senderId.profile ?
+          `${msg.senderId.profile.firstName || ''} ${msg.senderId.profile.lastName || ''}`.trim() || msg.senderId.email
+          : msg.senderId.email
+      } : null
+    }));
+
     successResponse(res, {
-      messages: messages.reverse(),
+      messages: transformedMessages.reverse(),
       hasMore: messages.length === limit,
       total,
     });
@@ -112,7 +134,29 @@ const sendMessage = async (req, res, next) => {
 
     await message.populate('senderId', 'email role profile.firstName profile.lastName profile.avatar');
 
-    successResponse(res, { message }, 'Message sent successfully', 201);
+    // Transform message to match frontend expectations
+    const transformedMessage = {
+      _id: message._id,
+      conversationId: message.conversationId,
+      content: message.content,
+      contentType: message.contentType,
+      attachments: message.attachments,
+      status: message.status,
+      createdAt: message.createdAt,
+      updatedAt: message.updatedAt,
+      sender: message.senderId ? {
+        _id: message.senderId._id,
+        id: message.senderId._id,
+        email: message.senderId.email,
+        role: message.senderId.role,
+        profile: message.senderId.profile,
+        name: message.senderId.profile ?
+          `${message.senderId.profile.firstName || ''} ${message.senderId.profile.lastName || ''}`.trim() || message.senderId.email
+          : message.senderId.email
+      } : null
+    };
+
+    successResponse(res, { message: transformedMessage }, 'Message sent successfully', 201);
   } catch (error) {
     next(error);
   }

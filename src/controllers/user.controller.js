@@ -55,8 +55,10 @@ const getAvailableUsers = async (req, res, next) => {
     }
 
     const users = await User.find(filter)
-      .select('email role profile.firstName profile.lastName profile.avatar profile.bio status.isOnline')
+      .select('_id email role profile.firstName profile.lastName profile.avatar profile.bio status.isOnline status.lastSeen')
       .sort({ 'status.isOnline': -1, 'profile.firstName': 1 });
+
+    console.log(`[API] getAvailableUsers: Returning ${users.length} users with roles:`, users.map(u => ({ id: u._id, role: u.role, email: u.email })));
 
     successResponse(res, { users }, 'Available users retrieved successfully');
   } catch (error) {

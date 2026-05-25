@@ -1,268 +1,255 @@
 # Worknoon Chat Backend
 
-Real-time chat backend API for the Worknoon eCommerce platform. Supports conversations between customers, agents, designers, and merchants with JWT authentication, Socket.IO real-time messaging, and file upload capabilities.
+A real-time chat backend built with Node.js, Express, and MongoDB for eCommerce platforms. Enables communication between customers, support agents, designers, and merchants.
 
-## 🚀 Features
+## Features
 
 ### Core Features
-- ✅ **JWT Authentication** - Sign up, login, token refresh, logout
-- ✅ **User Roles** - Admin, Agent, Customer, Designer, Merchant
-- ✅ **Real-time Messaging** - Socket.IO powered instant messaging
-- ✅ **Conversation CRUD** - Create, read, update, archive conversations
-- ✅ **Message CRUD** - Send, list, mark as read with cursor-based pagination
-- ✅ **Read/Unread Status** - Track message read receipts per participant
-- ✅ **Timestamps** - Full timestamp tracking for messages and conversations
+- **JWT Authentication**: Secure signup/login with role-based access
+- **User Roles**: admin, agent, customer, designer, merchant
+- **Real-time Messaging**: Socket.IO for instant message delivery
+- **CRUD Operations**: Full management of conversations and messages
+- **Read/Unread Status**: Track message status and timestamps
 
-### Bonus Features
-- ✅ **Typing Indicators** - Real-time typing status broadcasting
-- ✅ **Online Status** - Track user online/offline status
-- ✅ **File Uploads** - Image compression via Sharp, file type validation
-- ✅ **Role-Based Access** - Granular permission control per endpoint
-- ✅ **Rate Limiting** - API protection against abuse
-- ✅ **Security Headers** - Helmet middleware for HTTP security
+### Bonus Features Implemented
+- **Typing Indicators**: Real-time typing status
+- **Online Status**: Show when users are online/offline
+- **File Uploads**: Cloudinary integration for images, videos, and documents
+- **Email Notifications**: Resend integration for new messages and chat assignments
+- **Chat Transfer**: Agents can transfer chats to other agents, merchants, or designers
+- **Customer Support Flow**: Auto-assign customers to available agents
 
-## 🛠 Tech Stack
+## Tech Stack
 
-| Technology | Purpose |
-|------------|---------|
-| **Node.js** | Runtime environment |
-| **Express.js** | Web framework |
-| **MongoDB + Mongoose** | Database & ODM |
-| **Socket.IO** | Real-time bidirectional communication |
-| **JWT (jsonwebtoken)** | Authentication & authorization |
-| **bcryptjs** | Password hashing |
-| **Multer + Sharp** | File upload & image compression |
-| **express-validator** | Input validation |
-| **Helmet + CORS + Rate-Limit** | Security |
+- **Node.js**: Runtime environment
+- **Express**: Web framework
+- **MongoDB**: Database with Mongoose ODM
+- **Socket.IO**: Real-time bidirectional communication
+- **JWT**: Authentication tokens
+- **Cloudinary**: File storage and management
+- **Resend**: Email service provider
+- **Bcrypt**: Password hashing
+- **CORS**: Cross-origin resource sharing
 
-## 📋 Prerequisites
+## Installation
 
-- **Node.js** v18 or higher
-- **MongoDB** v6 or higher (local or Atlas)
-- **npm** or **yarn** package manager
+1. Clone the repository
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Create `.env` file (see `.env.example`)
+4. Start the server:
+   ```bash
+   npm run dev
+   ```
 
-## 🔧 Installation
+## Environment Variables
 
-### 1. Clone the repository
-```bash
-git clone https://github.com/worknoon/worknoon-chat-backend.git
-cd worknoon-chat-backend
-```
-
-### 2. Install dependencies
-```bash
-npm install
-```
-
-### 3. Configure environment variables
-```bash
-cp .env.example .env
-```
-
-Edit the `.env` file with your configuration:
 ```env
 PORT=5000
-NODE_ENV=development
 MONGODB_URI=mongodb://localhost:27017/worknoon-chat
-JWT_SECRET=your-secure-secret-key
-JWT_REFRESH_SECRET=your-secure-refresh-secret
-JWT_EXPIRES_IN=15m
-JWT_REFRESH_EXPIRES_IN=7d
-CORS_ORIGIN=http://localhost:3000
+JWT_SECRET=your-secret-key
+JWT_EXPIRES_IN=7d
+FRONTEND_URL=http://localhost:3000
+
+# Cloudinary
+CLOUDINARY_CLOUD_NAME=your-cloud-name
+CLOUDINARY_API_KEY=your-api-key
+CLOUDINARY_API_SECRET=your-api-secret
+
+# Resend
+RESEND_API_KEY=your-resend-api-key
 ```
 
-### 4. Start MongoDB
-```bash
-# If using local MongoDB
-mongod
-
-# Or set MONGODB_URI to your MongoDB Atlas connection string
-```
-
-### 5. Run the server
-```bash
-# Development mode (with auto-reload)
-npm run dev
-
-# Production mode
-npm start
-```
-
-## 📡 API Endpoints
+## API Endpoints
 
 ### Authentication
-| Method | Endpoint | Description | Auth |
-|--------|----------|-------------|------|
-| POST | `/api/auth/register` | Create new account | No |
-| POST | `/api/auth/login` | Login to account | No |
-| POST | `/api/auth/refresh` | Refresh access token | No |
-| GET | `/api/auth/me` | Get current user | Yes |
-| POST | `/api/auth/logout` | Logout user | Yes |
+- `POST /api/auth/signup` - Register new user
+- `POST /api/auth/login` - User login
+- `POST /api/auth/logout` - User logout
+- `GET /api/auth/me` - Get current user
 
 ### Users
-| Method | Endpoint | Description | Auth | Roles |
-|--------|----------|-------------|------|-------|
-| GET | `/api/users` | List all users | Yes | Admin |
-| GET | `/api/users/:id` | Get user by ID | Yes | All |
-| PUT | `/api/users/profile` | Update own profile | Yes | All |
+- `GET /api/users` - List all users (admin only)
+- `POST /api/users` - Create user (admin only)
+- `GET /api/users/available` - Get available users for chat
+- `GET /api/users/agents` - Get available agents
 
 ### Conversations
-| Method | Endpoint | Description | Auth |
-|--------|----------|-------------|------|
-| GET | `/api/conversations` | List user's conversations | Yes |
-| POST | `/api/conversations` | Create new conversation | Yes |
-| GET | `/api/conversations/:id` | Get conversation details | Yes |
-| PUT | `/api/conversations/:id` | Update conversation | Yes |
-| DELETE | `/api/conversations/:id` | Archive conversation | Yes |
+- `GET /api/conversations` - Get user's conversations
+- `POST /api/conversations` - Create new conversation
+- `GET /api/conversations/:id` - Get conversation details
+- `POST /api/conversations/:id/transfer` - Transfer chat to another user
+- `POST /api/conversations/:id/close` - Close conversation
 
 ### Messages
-| Method | Endpoint | Description | Auth |
-|--------|----------|-------------|------|
-| GET | `/api/messages/conversations/:conversationId` | Get messages (paginated) | Yes |
-| POST | `/api/messages` | Send a message | Yes |
-| PUT | `/api/messages/:messageId/read` | Mark message as read | Yes |
+- `GET /api/messages/:conversationId` - Get conversation messages
+- `POST /api/messages` - Send new message
+- `POST /api/messages/:id/read` - Mark message as read
 
-### Files
-| Method | Endpoint | Description | Auth |
-|--------|----------|-------------|------|
-| POST | `/api/upload` | Upload a file | Yes |
+### Uploads
+- `POST /api/upload/single` - Upload single file
+- `POST /api/upload/multiple` - Upload multiple files
 
-## 🔌 Socket.IO Events
+### Notifications
+- `GET /api/notifications` - Get user notifications
+- `POST /api/notifications/:id/read` - Mark notification as read
+- `DELETE /api/notifications` - Clear all notifications
 
-### Client → Server
-```javascript
-// Join a conversation room
-socket.emit('join_conversation', { conversationId });
+## Socket.IO Events
 
-// Leave a conversation room
-socket.emit('leave_conversation', { conversationId });
+### Client to Server
+- `join_conversation` - Join a conversation room
+- `leave_conversation` - Leave a conversation room
+- `send_message` - Send a message
+- `typing_start` - Start typing indicator
+- `typing_stop` - Stop typing indicator
+- `mark_read` - Mark messages as read
+- `initiate_support_chat` - Start customer support chat
+- `accept_chat` - Accept assigned chat
+- `transfer_chat` - Transfer chat to another user
+- `get_online_users` - Get online users in conversation
 
-// Send a message
-socket.emit('send_message', {
-  conversationId: '...',
-  content: 'Hello!',
-  attachments: []
-});
+### Server to Client
+- `message_received` - New message received
+- `user_typing` - User typing status
+- `messages_read` - Messages marked as read
+- `chat_assigned` - Chat assigned to agent
+- `support_chat_created` - Support chat created
+- `chat_transferred` - Chat transferred
+- `chat_transferred_to_you` - Chat transferred to current user
+- `user_online` - User came online
+- `user_offline` - User went offline
+- `online_users` - List of online users
+- `notification` - New notification
+- `error` - Error message
 
-// Start typing
-socket.emit('typing_start', { conversationId });
-
-// Stop typing
-socket.emit('typing_stop', { conversationId });
-
-// Mark messages as read
-socket.emit('mark_read', {
-  conversationId: '...',
-  messageIds: ['...', '...']
-});
-```
-
-### Server → Client
-```javascript
-// New message received
-socket.on('message_received', ({ message }) => {});
-
-// User typing indicator
-socket.on('user_typing', ({ userId, firstName, isTyping }) => {});
-
-// User came online
-socket.on('user_online', ({ userId }) => {});
-
-// User went offline
-socket.on('user_offline', ({ userId }) => {});
-
-// Messages marked as read
-socket.on('messages_read', ({ userId, conversationId, messageIds }) => {});
-```
-
-## 📁 Project Structure
+## File Structure
 
 ```
 worknoon-chat-backend/
+├── server.js                 # Entry point
+├── package.json              # Dependencies
+├── .env                      # Environment variables
+├── .env.example              # Example environment file
 ├── src/
+│   ├── app.js               # Express app setup
 │   ├── config/
-│   │   ├── db.js              # Database connection
-│   │   └── env.js             # Environment configuration
+│   │   ├── db.js            # Database connection
+│   │   └── env.js           # Environment configuration
 │   ├── controllers/
 │   │   ├── auth.controller.js
 │   │   ├── conversation.controller.js
 │   │   ├── message.controller.js
+│   │   ├── notification.controller.js
 │   │   ├── upload.controller.js
 │   │   └── user.controller.js
 │   ├── middleware/
-│   │   ├── auth.middleware.js  # JWT verification
-│   │   ├── role.middleware.js  # Role-based access
+│   │   ├── auth.middleware.js
+│   │   ├── role.middleware.js
 │   │   └── validate.middleware.js
 │   ├── models/
 │   │   ├── Conversation.js
 │   │   ├── Message.js
+│   │   ├── Notification.js
 │   │   └── User.js
 │   ├── routes/
 │   │   ├── auth.routes.js
 │   │   ├── conversation.routes.js
 │   │   ├── message.routes.js
+│   │   ├── notification.routes.js
 │   │   ├── upload.routes.js
 │   │   └── user.routes.js
 │   ├── services/
 │   │   ├── auth.service.js
+│   │   ├── cloudinary.service.js
+│   │   ├── email.service.js
 │   │   └── socket.service.js
 │   ├── socket/
-│   │   └── chatHandler.js     # Socket.IO event handlers
-│   ├── utils/
-│   │   ├── errors.js          # Custom error classes
-│   │   ├── jwt.js             # Token utilities
-│   │   └── response.js        # Response formatters
-│   └── app.js                 # Express app setup
-├── uploads/                   # Uploaded files directory
-├── tests/                     # Test files
-├── server.js                  # Entry point
-├── .env.example               # Environment template
-├── package.json
-└── README.md
+│   │   └── chatHandler.js    # Socket.IO event handlers
+│   └── utils/
+│       ├── errors.js         # Custom error classes
+│       ├── jwt.js            # JWT utilities
+│       └── response.js       # Response helpers
 ```
 
-## 🧪 Running Tests
+## User Roles
+
+- **admin**: Full system access
+- **agent**: Customer support agent
+- **customer**: End customer
+- **designer**: Product designer
+- **merchant**: Store merchant
+
+## Chat Features
+
+### Customer to Agent Flow
+1. Customer initiates support chat
+2. System auto-assigns to available online agent
+3. If no agents online, assigns to agent with least active chats
+4. Agent receives notification and email
+5. Real-time messaging begins
+
+### Chat Transfer
+- Agents can transfer chats to other agents
+- Can transfer to merchants or designers
+- System message added showing transfer details
+- New participant receives notification
+
+### File Uploads
+- Images: JPEG, PNG, GIF, WebP, SVG
+- Videos: MP4, WebM, MOV, AVI, MKV
+- Documents: PDF, DOC, DOCX, TXT, XLS, XLSX, PPT, PPTX
+- Max file size: 50MB
+- Cloudinary storage with local fallback
+
+## Security
+
+- JWT token authentication
+- Password hashing with bcrypt
+- Role-based access control
+- Input validation and sanitization
+- CORS configuration
+- Secure file upload validation
+
+## Error Handling
+
+Custom error classes:
+- `AppError`: Base error class
+- `BadRequestError`: 400 errors
+- `UnauthorizedError`: 401 errors
+- `ForbiddenError`: 403 errors
+- `NotFoundError`: 404 errors
+- `ConflictError`: 409 errors
+
+## Development
 
 ```bash
-# Run all tests
+# Run in development mode
+npm run dev
+
+# Run tests
 npm test
 
-# Watch mode
-npm run test:watch
+# Lint code
+npm run lint
 ```
 
-## 🤔 Challenges & Solutions
+## Production Deployment
 
-| Challenge | Solution |
-|-----------|----------|
-| **Real-time message ordering** | Used MongoDB ObjectId sorting (createdAt) which is monotonically increasing |
-| **Unread count accuracy** | Atomic increment operations per message, reset on read receipt |
-| **Socket authentication** | JWT verification middleware on Socket.IO handshake |
-| **File upload security** | Strict MIME type filtering + file size limits + Sharp compression |
-| **Concurrent connections** | Socket.IO room-based broadcasting to specific conversation participants |
-| **Data consistency** | Mongoose transactions for critical operations (message + conversation update) |
+```bash
+# Set NODE_ENV to production
+export NODE_ENV=production
 
-## 🔜 Future Improvements
+# Start server
+npm start
+```
 
-- [ ] Redis adapter for Socket.IO horizontal scaling
-- [ ] Push notifications via Firebase Cloud Messaging
-- [ ] Message encryption (end-to-end)
-- [ ] Message search/filter by content
-- [ ] Group conversations with multiple participants
-- [ ] Webhook integrations for external services
-- [ ] Rate limiting per user (not just IP)
-- [ ] Swagger/OpenAPI documentation
+## License
 
-## 📹 Demo Video
+MIT
 
-[![Worknoon Chat Backend Demo](https://img.youtube.com/vi/YOUR_VIDEO_ID/0.jpg)](https://www.youtube.com/watch?v=YOUR_VIDEO_ID)
+## Support
 
-*Demo video walkthrough (5-10 minutes) hosted on YouTube/Loom*
-
-## 👨‍💻 Author
-
-**Worknoon** - [careers@worknoon.com](mailto:careers@worknoon.com)
-
-## 📄 License
-
-MIT © Worknoon
+For support, please contact: careers@worknoon.com

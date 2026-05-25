@@ -11,14 +11,25 @@ router.post(
   '/',
   authenticate,
   validate([
-    body('participantIds').isArray({ min: 1 }).withMessage('At least one participant is required'),
-    body('participantIds.*.userId').isMongoId().withMessage('Invalid participant ID'),
+    body('participantIds')
+      .optional()
+      .isArray({ min: 1 })
+      .withMessage('At least one participant is required'),
+    body('participantIds.*.userId')
+      .optional()
+      .isMongoId()
+      .withMessage('Invalid participant ID'),
     body('participantIds.*.role')
+      .optional()
       .isIn(['admin', 'agent', 'customer', 'designer', 'merchant'])
       .withMessage('Invalid participant role'),
     body('type')
       .isIn(['buyer-designer', 'buyer-merchant', 'buyer-agent'])
       .withMessage('Invalid conversation type'),
+    body('autoAssign')
+      .optional()
+      .isBoolean()
+      .withMessage('autoAssign must be a boolean'),
   ]),
   conversationController.createConversation
 );

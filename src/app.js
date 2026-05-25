@@ -15,6 +15,7 @@ const conversationRoutes = require('./routes/conversation.routes');
 const messageRoutes = require('./routes/message.routes');
 const uploadRoutes = require('./routes/upload.routes');
 const notificationRoutes = require('./routes/notification.routes');
+const guestRoutes = require('./routes/guest.routes');
 
 const app = express();
 
@@ -70,6 +71,7 @@ app.use('/api/conversations', conversationRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/guest', guestRoutes);
 
 // 404 handler
 app.use((req, res) => {

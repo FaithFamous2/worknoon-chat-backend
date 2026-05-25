@@ -1,6 +1,7 @@
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const Notification = require('../models/Notification');
+const User = require('../models/User');
 const { successResponse, paginatedResponse } = require('../utils/response');
 const { NotFoundError, ForbiddenError } = require('../utils/errors');
 
@@ -38,19 +39,54 @@ const getConversations = async (req, res, next) => {
 
 const createConversation = async (req, res, next) => {
   try {
-    const { participantIds, type, context } = req.body;
+    const { participantIds, type, context, autoAssign } = req.body;
 
-    const participants = [
-      { userId: req.userId, role: req.user.role },
-      ...participantIds.map((p) => ({
-        userId: p.userId,
-        role: p.role,
-      })),
-    ];
+    // Validate type
+    if (!type) {
+      return res.status(400).json({ success: false, message: 'Conversation type is required' });
+    }
+
+    let participants = [{ userId: req.userId, role: req.user.role }];
+
+    // Handle auto-assignment for support chats
+    if (autoAssign && type === 'buyer-agent') {
+      // Find an available agent (online and least busy)
+      const availableAgent = await User.findOne({
+        role: 'agent',
+        'status.isOnline': true,
+        'status.isAvailable': true,
+      }).sort({ 'status.activeConversations': 1 });
+
+      if (availableAgent) {
+        participants.push({
+          userId: availableAgent._id,
+          role: 'agent',
+        });
+      } else {
+        // If no online agent, find any agent
+        const anyAgent = await User.findOne({ role: 'agent' });
+        if (anyAgent) {
+          participants.push({
+            userId: anyAgent._id,
+            role: 'agent',
+          });
+        }
+      }
+    } else if (participantIds && Array.isArray(participantIds) && participantIds.length > 0) {
+      // Manual participant selection
+      participants = [
+        ...participants,
+        ...participantIds.map((p) => ({
+          userId: p.userId,
+          role: p.role,
+        })),
+      ];
+    }
 
     // Check if conversation already exists with same participants
+    const participantIdsList = participants.map((p) => p.userId.toString());
     const existingConversation = await Conversation.findOne({
-      'participants.userId': { $all: participants.map((p) => p.userId) },
+      'participants.userId': { $all: participantIdsList },
       type,
       status: { $ne: 'archived' },
     });

@@ -7,6 +7,12 @@ const { sendNewMessageEmail, sendChatAssignedEmail, sendChatTransferEmail } = re
 const setupChatHandlers = (io, socket) => {
   const userId = socket.userId;
 
+  // Join user room for notifications
+  socket.on('join_user_room', (userId) => {
+    socket.join(userId);
+    console.log(`User ${userId} joined their personal room`);
+  });
+
   // Join conversation room
   socket.on('join_conversation', async (data) => {
     try {
@@ -101,12 +107,10 @@ const setupChatHandlers = (io, socket) => {
         messageContent = attachments[0].name || 'Attachment';
       }
 
-      console.log('Creating message with attachments:', { conversationId, content: messageContent, attachments: attachments || [] });
-
       // Validate attachments before saving
       const validAttachments = (attachments || []).filter(att => att && att.url && att.type && att.name);
-      console.log('Valid attachments to save:', validAttachments.length);
 
+      // Create message
       const message = await Message.create({
         conversationId,
         senderId: userId,
@@ -114,10 +118,6 @@ const setupChatHandlers = (io, socket) => {
         attachments: validAttachments,
         status: 'sent',
       });
-
-      console.log('Message created:', message._id);
-      console.log('Message attachments saved:', JSON.stringify(message.attachments, null, 2));
-      console.log('Attachment count in DB:', message.attachments?.length);
 
       // Update conversation last message
       conversation.lastMessage = {
@@ -187,36 +187,35 @@ const setupChatHandlers = (io, socket) => {
       // Populate sender info before emitting
       await message.populate('senderId', 'email role profile.firstName profile.lastName profile.avatar');
 
-      console.log('Emitting message to conversation:', conversationId);
-      console.log('Message to emit:', JSON.stringify({
-        _id: message._id,
-        content: message.content,
-        attachments: message.attachments,
-        senderId: message.senderId?._id || message.senderId,
-      }, null, 2));
+      // Transform message to match frontend expectations (sender object instead of senderId)
+      const sender = message.senderId ? {
+        _id: message.senderId._id,
+        id: message.senderId._id,
+        email: message.senderId.email,
+        role: message.senderId.role,
+        profile: message.senderId.profile,
+        name: message.senderId.profile ?
+          `${message.senderId.profile.firstName || ''} ${message.senderId.profile.lastName || ''}`.trim() || message.senderId.email
+          : message.senderId.email
+      } : null;
 
-      // Emit to all users in the conversation room with explicit status
       const messageToEmit = {
-        ...message.toObject(),
+        _id: message._id,
+        conversationId: message.conversationId,
+        content: message.content,
+        contentType: message.contentType,
+        attachments: message.attachments,
         status: 'sent',
+        createdAt: message.createdAt,
+        updatedAt: message.updatedAt,
+        sender: sender
       };
 
-      console.log('Final message object being emitted:', JSON.stringify(messageToEmit, null, 2));
-
-      // Use socket.broadcast.to to emit to everyone EXCEPT the sender
-      // This prevents the sender from receiving their own message back via socket
-      // (they already have the optimistic message)
-      socket.broadcast.to(conversationId).emit('message_received', {
+      // EMIT IMMEDIATELY - Don't wait for other operations
+      // Emit to everyone in the conversation including sender
+      io.to(conversationId).emit('message_received', {
         message: messageToEmit,
       });
-
-      // Also emit to the sender separately with the confirmed message
-      // This allows the sender to replace their optimistic message with the confirmed one
-      socket.emit('message_received', {
-        message: messageToEmit,
-      });
-
-      console.log('Message emitted to room (broadcast) and sender (direct):', conversationId);
     } catch (error) {
       socket.emit('error', { message: error.message });
     }
