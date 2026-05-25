@@ -16,6 +16,7 @@ const messageRoutes = require('./routes/message.routes');
 const uploadRoutes = require('./routes/upload.routes');
 const notificationRoutes = require('./routes/notification.routes');
 const guestRoutes = require('./routes/guest.routes');
+const masterTokenRoutes = require('./routes/masterToken.routes');
 
 const app = express();
 
@@ -72,10 +73,12 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/guest', guestRoutes);
+app.use('/api/master-tokens', masterTokenRoutes);
+app.use('/api', masterTokenRoutes); // External routes are nested under /api/external/
 
 // 404 handler
 app.use((req, res) => {
-  errorResponse(res, `Route ${req.originalUrl} not found`, 404);
+  return errorResponse(res, `Route ${req.originalUrl} not found`, 404);
 });
 
 // Global error handler
@@ -112,7 +115,7 @@ app.use((err, req, res, next) => {
     console.error('Error:', err);
   }
 
-  errorResponse(res, message, statusCode);
+  return errorResponse(res, message, statusCode);
 });
 
 module.exports = app;

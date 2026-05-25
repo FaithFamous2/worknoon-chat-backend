@@ -4,13 +4,70 @@ const Notification = require('../models/Notification');
 const User = require('../models/User');
 const { sendNewMessageEmail, sendChatAssignedEmail, sendChatTransferEmail } = require('../services/email.service');
 
+/**
+ * Fire notification/email creation asynchronously after emitting the message.
+ * This keeps the critical path (message save + emit) as fast as possible.
+ */
+const fireNotificationAndEmail = async (io, conversationId, userId, socketUser, content, conversation) => {
+  try {
+    const senderName = socketUser.profile?.firstName
+      ? `${socketUser.profile.firstName} ${socketUser.profile.lastName || ''}`.trim()
+      : socketUser.email;
+
+    const otherParticipants = conversation.participants.filter(
+      (p) => p.userId.toString() !== userId
+    );
+
+    for (const participant of otherParticipants) {
+      try {
+        const notification = await Notification.create({
+          userId: participant.userId,
+          type: 'message',
+          title: `New message from ${senderName}`,
+          content: content.length > 100 ? content.substring(0, 100) + '...' : content,
+          data: {
+            conversationId,
+            senderId: userId,
+            senderName,
+          },
+        });
+
+        io.to(participant.userId.toString()).emit('notification', notification);
+        io.to(participant.userId.toString()).emit('new_message_notification', {
+          conversationId,
+          senderId: userId,
+          senderName,
+          content,
+        });
+
+        // Fire email notification without awaiting
+        const participantUser = await User.findById(participant.userId).select('email settings.notifications.email').lean();
+        if (participantUser && participantUser.settings?.notifications?.email !== false) {
+          const conversationUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/inbox/${conversationId}`;
+          sendNewMessageEmail({
+            to: participantUser.email,
+            senderName,
+            messageContent: content,
+            conversationId,
+            conversationUrl,
+          }).catch(() => {}); // Silently fail email
+        }
+      } catch (err) {
+        // Silently fail individual notification - critical path already succeeded
+        console.error('Background notification error:', err.message);
+      }
+    }
+  } catch (err) {
+    console.error('Background notification batch error:', err.message);
+  }
+};
+
 const setupChatHandlers = (io, socket) => {
   const userId = socket.userId;
 
   // Join user room for notifications
   socket.on('join_user_room', (userId) => {
     socket.join(userId);
-    console.log(`User ${userId} joined their personal room`);
   });
 
   // Join conversation room
@@ -43,7 +100,6 @@ const setupChatHandlers = (io, socket) => {
       });
 
       if (deleteResult.deletedCount > 0) {
-        // Emit updated unread count to the user's personal room
         const unreadCount = await Notification.countDocuments({ userId, read: false });
         io.to(userId).emit('unread_count_updated', { count: unreadCount });
         io.to(userId).emit('notifications_cleared', { conversationId, deletedCount: deleteResult.deletedCount });
@@ -60,26 +116,30 @@ const setupChatHandlers = (io, socket) => {
     socket.emit('left_conversation', { conversationId });
   });
 
-  // Send message
+  // Send message - OPTIMIZED for speed
   socket.on('send_message', async (data) => {
     try {
       const { conversationId, content, attachments } = data;
 
-      const conversation = await Conversation.findById(conversationId);
+      // Validate that at least content or attachments is provided
+      const hasContent = content && content.trim().length > 0;
+      const hasAttachments = attachments && attachments.length > 0;
+      if (!hasContent && !hasAttachments) {
+        socket.emit('error', { message: 'Message must have content or attachments' });
+        return;
+      }
+
+      // Validate conversation and permissions in parallel
+      const conversation = await Conversation.findById(conversationId).lean();
       if (!conversation) {
         socket.emit('error', { message: 'Conversation not found' });
         return;
       }
 
-      // Check if user is a participant - handle both populated and unpopulated userId
+      // Check if user is a participant
       const isParticipant = conversation.participants.some(
-        (p) => {
-          const participantUserId = p.userId._id ? p.userId._id.toString() : p.userId.toString();
-          return participantUserId === userId;
-        }
+        (p) => p.userId.toString() === userId
       );
-
-      // Also allow admins to send messages
       const isAdmin = socket.user.role === 'admin';
 
       if (!isParticipant && !isAdmin) {
@@ -92,15 +152,6 @@ const setupChatHandlers = (io, socket) => {
         return;
       }
 
-      // Validate that at least content or attachments is provided
-      const hasContent = content && content.trim().length > 0;
-      const hasAttachments = attachments && attachments.length > 0;
-
-      if (!hasContent && !hasAttachments) {
-        socket.emit('error', { message: 'Message must have content or attachments' });
-        return;
-      }
-
       // If no content but has attachments, use first attachment name as content
       let messageContent = content || '';
       if (!hasContent && hasAttachments && attachments.length > 0) {
@@ -110,7 +161,7 @@ const setupChatHandlers = (io, socket) => {
       // Validate attachments before saving
       const validAttachments = (attachments || []).filter(att => att && att.url && att.type && att.name);
 
-      // Create message
+      // Create message and update conversation in parallel where possible
       const message = await Message.create({
         conversationId,
         senderId: userId,
@@ -119,72 +170,7 @@ const setupChatHandlers = (io, socket) => {
         status: 'sent',
       });
 
-      // Update conversation last message
-      conversation.lastMessage = {
-        content,
-        senderId: userId,
-        timestamp: message.createdAt,
-      };
-
-      // Increment unread counts for other participants
-      conversation.participants.forEach((p) => {
-        if (p.userId.toString() !== userId) {
-          p.unreadCount += 1;
-        }
-      });
-
-      await conversation.save();
-
-      await message.populate('senderId', 'email role profile.firstName profile.lastName profile.avatar');
-
-      // Create notifications for other participants
-      const senderName = socket.user.profile?.firstName
-        ? `${socket.user.profile.firstName} ${socket.user.profile.lastName || ''}`.trim()
-        : socket.user.email;
-
-      const otherParticipants = conversation.participants.filter(
-        (p) => p.userId.toString() !== userId
-      );
-
-      // Create notifications in database and emit via socket
-      for (const participant of otherParticipants) {
-        const notification = await Notification.create({
-          userId: participant.userId,
-          type: 'message',
-          title: `New message from ${senderName}`,
-          content: content.length > 100 ? content.substring(0, 100) + '...' : content,
-          data: {
-            conversationId,
-            senderId: userId,
-            senderName,
-            messageId: message._id,
-          },
-        });
-
-        // Emit notification to specific user's room
-        io.to(participant.userId.toString()).emit('notification', notification);
-        io.to(participant.userId.toString()).emit('new_message_notification', {
-          conversationId,
-          senderId: userId,
-          senderName,
-          content,
-        });
-
-        // Send email notification if user has email notifications enabled
-        const participantUser = await User.findById(participant.userId);
-        if (participantUser?.settings?.notifications?.email !== false) {
-          const conversationUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/inbox/${conversationId}`;
-          await sendNewMessageEmail({
-            to: participantUser.email,
-            senderName,
-            messageContent: content,
-            conversationId,
-            conversationUrl,
-          });
-        }
-      }
-
-      // Populate sender info before emitting
+      // Populate sender info (needed for the transform below)
       await message.populate('senderId', 'email role profile.firstName profile.lastName profile.avatar');
 
       // Transform message to match frontend expectations (sender object instead of senderId)
@@ -211,11 +197,37 @@ const setupChatHandlers = (io, socket) => {
         sender: sender
       };
 
-      // EMIT IMMEDIATELY - Don't wait for other operations
-      // Emit to everyone in the conversation including sender
+      // EMIT IMMEDIATELY - before conversation save, before notifications
       io.to(conversationId).emit('message_received', {
         message: messageToEmit,
       });
+
+      // Update conversation last message and unread counts asynchronously
+      // (don't block the response on this)
+      Conversation.updateOne(
+        { _id: conversationId },
+        {
+          $set: {
+            'lastMessage': {
+              content,
+              senderId: userId,
+              timestamp: message.createdAt,
+            },
+          },
+          $inc: {
+            ...conversation.participants.reduce((acc, p) => {
+              if (p.userId.toString() !== userId) {
+                acc[`participants.${conversation.participants.indexOf(p)}.unreadCount`] = 1;
+              }
+              return acc;
+            }, {}),
+          },
+        }
+      ).catch(err => console.error('Conversation update error:', err.message));
+
+      // Fire notifications and emails in the background (no await)
+      fireNotificationAndEmail(io, conversationId, userId, socket.user, content, conversation)
+        .catch(err => console.error('fireNotificationAndEmail failed:', err.message));
     } catch (error) {
       socket.emit('error', { message: error.message });
     }
@@ -244,61 +256,36 @@ const setupChatHandlers = (io, socket) => {
     });
   });
 
-  // Mark messages as read
+  // Mark messages as read - OPTIMIZED with bulk operations
   socket.on('mark_read', async (data) => {
     try {
       const { conversationId, messageIds } = data;
 
-      // Add current user to readBy for each message and update status
-      const readMessages = [];
-      for (const messageId of messageIds) {
-        const message = await Message.findById(messageId);
-        if (!message) continue;
+      // Bulk update all messages at once
+      const bulkOps = messageIds.map(messageId => ({
+        updateOne: {
+          filter: {
+            _id: messageId,
+            'readBy.userId': { $ne: userId },
+          },
+          update: {
+            $push: { readBy: { userId, readAt: new Date() } },
+            $set: { status: 'delivered' },
+          },
+        },
+      }));
 
-        const alreadyRead = message.readBy.some(
-          (r) => r.userId.toString() === userId
-        );
-
-        if (!alreadyRead) {
-          message.readBy.push({ userId, readAt: new Date() });
-
-          // Determine new status: 'read' if all participants have read, else 'delivered'
-          const conversation = await Conversation.findById(conversationId);
-          if (conversation) {
-            const allParticipantsRead = conversation.participants.every(
-              (p) =>
-                message.readBy.some(
-                  (r) => r.userId.toString() === p.userId.toString()
-                ) || p.userId.toString() === message.senderId.toString()
-            );
-            if (allParticipantsRead) {
-              message.status = 'read';
-            } else if (message.status === 'sent') {
-              message.status = 'delivered';
-            }
-          }
-
-          await message.save();
-          readMessages.push({
-            _id: message._id,
-            status: message.status,
-          });
-        }
+      if (bulkOps.length > 0) {
+        await Message.bulkWrite(bulkOps);
       }
 
       // Reset unread count for this user in conversation
-      const conversation = await Conversation.findById(conversationId);
-      if (conversation) {
-        const participant = conversation.participants.find(
-          (p) => p.userId.toString() === userId
-        );
-        if (participant) {
-          participant.unreadCount = 0;
-        }
-        await conversation.save();
-      }
+      await Conversation.updateOne(
+        { _id: conversationId, 'participants.userId': userId },
+        { $set: { 'participants.$.unreadCount': 0 } }
+      );
 
-      // Clear notifications for this conversation when messages are read
+      // Clear notifications for this conversation
       const deleteResult = await Notification.deleteMany({
         userId,
         'data.conversationId': conversationId,
@@ -310,39 +297,38 @@ const setupChatHandlers = (io, socket) => {
         io.to(userId).emit('notifications_cleared', { conversationId, deletedCount: deleteResult.deletedCount });
       }
 
+      // Get updated status for each message
+      const updatedMessages = await Message.find({ _id: { $in: messageIds } }).select('_id status').lean();
+
       // Broadcast updated message statuses to everyone in the conversation room
       io.to(conversationId).emit('messages_read', {
         userId,
         conversationId,
         messageIds,
-        readMessages,
+        readMessages: updatedMessages,
       });
     } catch (error) {
       socket.emit('error', { message: error.message });
     }
   });
 
-  // Customer initiates support chat - auto-assign to available agent
+  // Customer initiates support chat
   socket.on('initiate_support_chat', async (data) => {
     try {
       const { message: initialMessage, context } = data;
 
-      // Find available agents (online agents)
+      // Find available agents (online agents) - single query
       const availableAgents = await User.find({
         role: 'agent',
         'status.isOnline': true,
-      }).sort({ 'status.lastSeen': -1 });
+      }).sort({ 'status.lastSeen': -1 }).limit(1).lean();
 
-      let assignedAgent = null;
+      let assignedAgent = availableAgents[0] || null;
 
-      if (availableAgents.length > 0) {
-        // Assign to first available agent
-        assignedAgent = availableAgents[0];
-      } else {
-        // If no online agents, find any agent with least active conversations
-        const agents = await User.find({ role: 'agent' });
+      if (!assignedAgent) {
+        // Find any agent with least active conversations
+        const agents = await User.find({ role: 'agent' }).lean();
         if (agents.length > 0) {
-          // Get conversation counts for each agent
           const agentConversationCounts = await Promise.all(
             agents.map(async (agent) => {
               const count = await Conversation.countDocuments({
@@ -352,8 +338,6 @@ const setupChatHandlers = (io, socket) => {
               return { agent, count };
             })
           );
-
-          // Sort by conversation count (ascending)
           agentConversationCounts.sort((a, b) => a.count - b.count);
           assignedAgent = agentConversationCounts[0].agent;
         }
@@ -402,7 +386,6 @@ const setupChatHandlers = (io, socket) => {
       }
 
       await conversation.save();
-
       await message.populate('senderId', 'email role profile.firstName profile.lastName profile.avatar');
 
       // Notify the assigned agent
@@ -410,8 +393,8 @@ const setupChatHandlers = (io, socket) => {
         ? `${socket.user.profile.firstName} ${socket.user.profile.lastName || ''}`.trim()
         : socket.user.email;
 
-      // Create notification for agent
-      const notification = await Notification.create({
+      // Create notification for agent in background
+      Notification.create({
         userId: assignedAgent._id,
         type: 'chat_assigned',
         title: `New support chat from ${customerName}`,
@@ -422,12 +405,12 @@ const setupChatHandlers = (io, socket) => {
           senderName: customerName,
           messageId: message._id,
         },
-      });
+      }).catch(() => {});
 
       // Emit to agent's room
       io.to(assignedAgent._id.toString()).emit('chat_assigned', {
         conversation,
-        notification,
+        notification: null, // Notification created in background
         customerName,
         initialMessage,
       });
@@ -444,15 +427,15 @@ const setupChatHandlers = (io, socket) => {
         },
       });
 
-      // Send email notification to agent
+      // Send email notification to agent in background
       if (assignedAgent.settings?.notifications?.email !== false) {
         const conversationUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/inbox/${conversation._id}`;
-        await sendChatAssignedEmail({
+        sendChatAssignedEmail({
           to: assignedAgent.email,
           customerName,
           conversationId: conversation._id,
           conversationUrl,
-        });
+        }).catch(() => {});
       }
 
       // Join the customer to the conversation room
@@ -470,7 +453,7 @@ const setupChatHandlers = (io, socket) => {
     }
   });
 
-  // Agent accepts a chat (for cases where chat is pending acceptance)
+  // Agent accepts a chat
   socket.on('accept_chat', async (data) => {
     try {
       const { conversationId } = data;
@@ -481,13 +464,11 @@ const setupChatHandlers = (io, socket) => {
         return;
       }
 
-      // Check if user is an agent
-      if (socket.user.role !== 'agent' && socket.user.role !== 'admin') {
-        socket.emit('error', { message: 'Only agents can accept chats' });
+      if (socket.user.role !== 'agent' && socket.user.role !== 'merchant' && socket.user.role !== 'designer' && socket.user.role !== 'admin') {
+        socket.emit('error', { message: 'Only agents, merchants, designers, and admins can accept chats' });
         return;
       }
 
-      // Check if already a participant
       const isParticipant = conversation.participants.some(
         (p) => p.userId.toString() === userId
       );
@@ -521,10 +502,7 @@ const setupChatHandlers = (io, socket) => {
         },
       });
 
-      // Notify the accepting agent
-      socket.emit('chat_accepted', {
-        conversation,
-      });
+      socket.emit('chat_accepted', { conversation });
     } catch (error) {
       socket.emit('error', { message: error.message });
     }
@@ -541,7 +519,6 @@ const setupChatHandlers = (io, socket) => {
         return;
       }
 
-      // Check if current user is a participant
       const isParticipant = conversation.participants.some(
         (p) => p.userId.toString() === userId
       );
@@ -551,14 +528,12 @@ const setupChatHandlers = (io, socket) => {
         return;
       }
 
-      // Find target user
       const targetUser = await User.findById(targetUserId);
       if (!targetUser) {
         socket.emit('error', { message: 'Target user not found' });
         return;
       }
 
-      // Check if target user is already a participant
       const isTargetParticipant = conversation.participants.some(
         (p) => p.userId.toString() === targetUserId
       );
@@ -568,17 +543,13 @@ const setupChatHandlers = (io, socket) => {
         return;
       }
 
-      // Remove current user from participants (optional - they can stay as observer)
-      // For now, we'll keep them in the conversation but mark as transferred
-
       // Add target user to participants
       conversation.participants.push({
         userId: targetUserId,
         role: targetUser.role,
-        unreadCount: 1, // They have unread messages
+        unreadCount: 1,
       });
 
-      // Add transfer metadata
       conversation.transfers = conversation.transfers || [];
       conversation.transfers.push({
         from: userId,
@@ -602,7 +573,6 @@ const setupChatHandlers = (io, socket) => {
 
       await transferMessage.populate('senderId', 'email role profile.firstName profile.lastName profile.avatar');
 
-      // Create notification for target user
       const transferrerName = socket.user.profile?.firstName
         ? `${socket.user.profile.firstName} ${socket.user.profile.lastName || ''}`.trim()
         : socket.user.email;
@@ -614,7 +584,8 @@ const setupChatHandlers = (io, socket) => {
         ? `${customerParticipant.userId.profile.firstName} ${customerParticipant.userId.profile.lastName || ''}`.trim()
         : 'Customer';
 
-      const notification = await Notification.create({
+      // Create notification in background
+      Notification.create({
         userId: targetUserId,
         type: 'chat_transferred',
         title: `Chat transferred from ${transferrerName}`,
@@ -626,12 +597,12 @@ const setupChatHandlers = (io, socket) => {
           customerName,
           reason,
         },
-      });
+      }).catch(() => {});
 
       // Emit to target user
       io.to(targetUserId).emit('chat_transferred_to_you', {
         conversation,
-        notification,
+        notification: null,
         transferredBy: {
           _id: socket.user._id,
           name: transferrerName,
@@ -658,19 +629,18 @@ const setupChatHandlers = (io, socket) => {
         systemMessage: transferMessage,
       });
 
-      // Send email notification to target user
+      // Send email in background
       if (targetUser.settings?.notifications?.email !== false) {
         const conversationUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/inbox/${conversationId}`;
-        await sendChatTransferEmail({
+        sendChatTransferEmail({
           to: targetUser.email,
           transferFrom: transferrerName,
           customerName,
           conversationId,
           conversationUrl,
-        });
+        }).catch(() => {});
       }
 
-      // Notify the transferrer
       socket.emit('chat_transfer_success', {
         conversation,
         targetUser: {
@@ -695,11 +665,6 @@ const setupChatHandlers = (io, socket) => {
         return;
       }
 
-      // Get all sockets in the conversation room
-      const room = io.sockets.adapter.rooms.get(conversationId);
-      const onlineUserIds = room ? Array.from(room) : [];
-
-      // Get user details for online users
       const onlineUsers = await User.find({
         _id: { $in: conversation.participants.map(p => p.userId) },
         'status.isOnline': true,

@@ -5,7 +5,7 @@ const register = async (req, res, next) => {
   try {
     const { email, password, role, firstName, lastName } = req.body;
     const result = await authService.register({ email, password, role, firstName, lastName });
-    successResponse(res, result, 'Registration successful', 201);
+    return successResponse(res, result, 'Registration successful', 201);
   } catch (error) {
     next(error);
   }
@@ -15,7 +15,7 @@ const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
     const result = await authService.login({ email, password });
-    successResponse(res, result, 'Login successful');
+    return successResponse(res, result, 'Login successful');
   } catch (error) {
     next(error);
   }
@@ -25,7 +25,7 @@ const refresh = async (req, res, next) => {
   try {
     const { refreshToken } = req.body;
     const result = await authService.refreshTokens(refreshToken);
-    successResponse(res, result, 'Tokens refreshed successfully');
+    return successResponse(res, result, 'Tokens refreshed successfully');
   } catch (error) {
     next(error);
   }
@@ -33,7 +33,7 @@ const refresh = async (req, res, next) => {
 
 const getMe = async (req, res, next) => {
   try {
-    successResponse(res, { user: req.user.toPublicJSON() }, 'User retrieved successfully');
+    return successResponse(res, { user: req.user.toPublicJSON() }, 'User retrieved successfully');
   } catch (error) {
     next(error);
   }
@@ -42,7 +42,7 @@ const getMe = async (req, res, next) => {
 const logout = async (req, res, next) => {
   try {
     await authService.logout(req.userId);
-    successResponse(res, null, 'Logged out successfully');
+    return successResponse(res, null, 'Logged out successfully');
   } catch (error) {
     next(error);
   }
